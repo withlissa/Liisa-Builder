@@ -1,0 +1,498 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: generation
+    description: AI application generation
+  - name: projects
+    description: Lissa project workspace operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /build:
+    post:
+      operationId: buildApp
+      tags: [generation]
+      summary: Build an application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppGenerationInput"
+      responses:
+        "200":
+          description: Generated application concept
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedApp"
+        "400":
+          description: Invalid request
+  /build/jobs:
+    post:
+      operationId: startBuildJob
+      tags: [generation]
+      summary: Start a long-running agent build
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppGenerationInput"
+      responses:
+        "202":
+          description: Build job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildJobStart"
+  /build/jobs/status:
+    get:
+      operationId: getBuildJob
+      tags: [generation]
+      summary: Get agent build status
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: pollToken
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current build job state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildJob"
+  /build/jobs/cancel:
+    post:
+      operationId: cancelBuildJob
+      tags: [generation]
+      summary: Stop a queued or running agent build
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuildJobCredentials"
+      responses:
+        "200":
+          description: Current terminal build job state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildJob"
+        "404":
+          description: Build job not found
+  /build/jobs/events:
+    get:
+      operationId: streamBuildJobEvents
+      tags: [generation]
+      summary: Stream persisted agent activity for a build
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: pollToken
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: after
+          schema:
+            type: integer
+            minimum: 0
+      responses:
+        "200":
+          description: Server-sent agent events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+  /build/jobs/runtime/events:
+    post:
+      operationId: submitRuntimeEvent
+      tags: [generation]
+      summary: Record browser runtime activity for an active build revision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeEventInput"
+      responses:
+        "200":
+          description: Runtime event accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeAccepted"
+  /build/jobs/runtime/report:
+    post:
+      operationId: submitRuntimeReport
+      tags: [generation]
+      summary: Submit browser runtime QA report for an active build revision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RuntimeReportInput"
+      responses:
+        "200":
+          description: Runtime report accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeAccepted"
+  /credits/status:
+    get:
+      operationId: getCreditStatus
+      tags: [generation]
+      parameters:
+        - in: query
+          name: walletAddress
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Current build allowance and credit status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditStatus"
+  /credits/claim:
+    post:
+      operationId: claimCredits
+      tags: [generation]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditClaimInput"
+      responses:
+        "200":
+          description: Claimed credit result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditStatus"
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List projects belonging to a wallet
+      parameters:
+        - in: query
+          name: walletAddress
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Wallet projects ordered by latest activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProjectSummary"
+        "400":
+          description: Invalid wallet
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    AppGenerationInput:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 100000
+        mode:
+          type: string
+          maxLength: 30
+        existingCode:
+          type: string
+          maxLength: 50000
+        walletAddress:
+          type: string
+      required:
+        - prompt
+    GeneratedFile:
+      type: object
+      properties:
+        name:
+          type: string
+        language:
+          type: string
+        code:
+          type: string
+      required: [name, language, code]
+    BuildJob:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [queued, working, completed, failed, cancelled]
+        stage:
+          type: string
+        result:
+          $ref: "#/components/schemas/GeneratedApp"
+        error:
+          type: string
+        runtimeRevision:
+          type: integer
+        runtimeState:
+          type: string
+          enum: [idle, awaiting, received]
+        cancelledAt:
+          type: ["string", "null"]
+          format: date-time
+        cancelReason:
+          type: ["string", "null"]
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentEvent"
+      required: [id, status, stage, runtimeRevision, runtimeState, events]
+    BuildJobCredentials:
+      type: object
+      properties:
+        id:
+          type: string
+          minLength: 1
+        pollToken:
+          type: string
+          minLength: 1
+      required: [id, pollToken]
+    RuntimeEventInput:
+      type: object
+      additionalProperties: false
+      required: [id, pollToken, runtimeRevision, eventId, type, title]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 200 }
+        pollToken: { type: string, minLength: 1, maxLength: 200 }
+        runtimeRevision: { type: integer, minimum: 1, maximum: 1000 }
+        eventId: { type: string, minLength: 1, maxLength: 160 }
+        type: { type: string, enum: [status, terminal, browser-error, preview] }
+        title: { type: string, minLength: 1, maxLength: 500 }
+        detail: { type: ["string", "null"], maxLength: 10000 }
+        metadata: { type: ["object", "null"], maxProperties: 30, additionalProperties: true }
+    RuntimeReportInput:
+      type: object
+      additionalProperties: false
+      required: [id, pollToken, runtimeRevision, status, terminalOutput, browserErrors, screenshots]
+      properties:
+        id: { type: string, minLength: 1, maxLength: 200 }
+        pollToken: { type: string, minLength: 1, maxLength: 200 }
+        runtimeRevision: { type: integer, minimum: 1, maximum: 1000 }
+        status: { type: string, enum: [passed, failed, cancelled] }
+        installExitCode: { type: ["integer", "null"], minimum: -1, maximum: 255 }
+        serverExitCode: { type: ["integer", "null"], minimum: -1, maximum: 255 }
+        terminalOutput: { type: string, maxLength: 100000 }
+        browserErrors:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 5000 }
+        screenshots:
+          type: array
+          maxItems: 2
+          items:
+            type: object
+            additionalProperties: false
+            required: [viewport, width, height, dataUrl]
+            properties:
+              viewport: { type: string, enum: [desktop, mobile] }
+              width: { type: integer, minimum: 1, maximum: 10000 }
+              height: { type: integer, minimum: 1, maximum: 10000 }
+              dataUrl:
+                type: string
+                maxLength: 4200000
+                pattern: '^data:image/(png|jpeg);base64,'
+    RuntimeAccepted:
+      type: object
+      required: [accepted]
+      properties:
+        accepted: { type: boolean }
+    AgentEvent:
+      type: object
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [message, plan, activity, complete, error]
+        title:
+          type: string
+        detail:
+          type: ["string", "null"]
+        metadata:
+          type: ["object", "null"]
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, type, title, createdAt]
+    BuildJobStart:
+      type: object
+      properties:
+        id:
+          type: string
+        pollToken:
+          type: string
+        status:
+          type: string
+          enum: [queued, working]
+        stage:
+          type: string
+      required: [id, pollToken, status, stage]
+    GeneratedApp:
+      type: object
+      properties:
+        title:
+          type: string
+        appName:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        plan:
+          type: array
+          items:
+            type: string
+        features:
+          type: array
+          items:
+            type: string
+        htmlPreview:
+          type: string
+        files:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/GeneratedFile"
+        suggestedNextSteps:
+          type: array
+          items:
+            type: string
+        usage:
+          $ref: "#/components/schemas/BuildUsage"
+      required:
+        - title
+        - appName
+        - description
+        - category
+        - plan
+        - features
+        - htmlPreview
+        - files
+        - suggestedNextSteps
+        - usage
+    BuildUsage:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [free, credit]
+        freeBuildsRemaining:
+          type: integer
+        creditBalance:
+          type: number
+      required: [source, freeBuildsRemaining, creditBalance]
+    CreditStatus:
+      type: object
+      properties:
+        unlimited:
+          type: boolean
+        creditBalance:
+          type: number
+        freeBuildsRemaining:
+          type: integer
+        claimableCredit:
+          type: number
+        earningRatePerHour:
+          type: number
+        eligible:
+          type: boolean
+        earningStarted:
+          type: boolean
+        tokenBalance:
+          type: string
+        minimumTokenBalance:
+          type: string
+      required:
+        - unlimited
+        - creditBalance
+        - freeBuildsRemaining
+        - claimableCredit
+        - earningRatePerHour
+        - eligible
+        - earningStarted
+        - tokenBalance
+        - minimumTokenBalance
+    CreditClaimInput:
+      type: object
+      properties:
+        walletAddress:
+          type: string
+      required: [walletAddress]
+    ProjectSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        fileCount:
+          type: integer
+        published:
+          type: boolean
+        publishedUrl:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, fileCount, published, publishedUrl, createdAt, updatedAt]
+
